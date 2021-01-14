@@ -33,11 +33,11 @@ class Sdk:
         if self._stopped:
             raise Exception("This sdk has been stopped")
 
-    def _debug(self, *args):
+    def _debug(self, msg):
         if self.debug:
-            logging.warning(args)
+            logging.warning(msg)
 
-    def _loop_update_settings(self):
+    def _update_settings(self):
         try:
             res = requests.get("%s/monitors/sdk/settings" % self.base_url, headers={"Authorization": self.api_key})
             res.raise_for_status()
@@ -47,25 +47,25 @@ class Sdk:
             if e.response.status_code == 403:
                 raise e
 
-            self._debug("Error while updating settings", e)
+            self._debug("Error while updating settings: %s" % str(e))
         except Exception as e:
-            self._debug("Error while updating settings", e)
+            self._debug("Error while updating settings: %s" % str(e))
 
-    def _loop_update_actions(self):
+    def _update_actions(self):
         try:
             res = requests.get("%s/monitors/sdk/actions" % self.base_url, headers={"Authorization": self.api_key})
             res.raise_for_status()
             actions = res.json()
             for action in actions:
-                self._debug("Action received", action)
+                self._debug("Action received: %s" % action)
                 self.on_action.fire(action.action, action.time)
         except requests.RequestException as e:
             if e.response.status_code == 403:
                 raise e
 
-            self._debug("Error while fetching actions", e)
+            self._debug("Error while fetching actions: %s" % str(e))
         except Exception as e:
-            self._debug("Error while fetching actions", e)
+            self._debug("Error while fetching actions: %s" % str(e))
 
     def _log(self, message: str, log_type: str):
         try:
@@ -78,7 +78,7 @@ class Sdk:
                 "%s/monitors/log" % self.base_url, headers={"Authorization": self.api_key}, json=payload)
             res.raise_for_status()
         except Exception as e:
-            self._debug("Error while sending log", str(e))
+            self._debug("Error while sending log: %s" % str(e))
             logging.warning("Could not log message", str(e))
 
     def log(self, message: str, log_type: str = "info"):
@@ -96,19 +96,22 @@ class Sdk:
         else:
             logging.info(message)
 
-        self._debug("Sending log", message, log_type)
+        self._debug("Sending log: %s %s" % (message, log_type))
         thread = threading.Thread(target=self._log, name="RemoteLog", args=[message, log_type])
         thread.start()
 
     def init(self):
         self._raise_on_stopped()
-        self._loop_update_settings()
-        self._loop_update_actions()
-        self._interval_runners.append(IntervalRunner(self._loop_update_settings, self.polling_interval_seconds))
-        self._interval_runners.append(IntervalRunner(self._loop_update_actions, 2))
+        self._update_settings()
+        self._update_actions()
+        self._interval_runners.append(IntervalRunner(self._update_settings, self.polling_interval_seconds))
+        self._interval_runners.append(IntervalRunner(self._update_actions, 2))
 
     def stop(self):
         self._debug("stopping")
+        self.on_config_updated.clear_handlers()
+        self.on_action.clear_handlers()
+
         for thread in self._interval_runners:
             thread.cancel()
 
