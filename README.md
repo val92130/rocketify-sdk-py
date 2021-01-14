@@ -9,7 +9,6 @@ with [Rocketify](https://rocketify.rocketcop.io).
 
 ```python
 
-import time
 from rocketify_sdk import Sdk
 
 
