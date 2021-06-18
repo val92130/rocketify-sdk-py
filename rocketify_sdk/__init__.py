@@ -1,4 +1,5 @@
 import copy
+import pickle
 import threading
 import requests
 import logging
@@ -14,7 +15,7 @@ class Sdk:
                  api_key: str,
                  polling_interval_seconds: int = 5,
                  debug: bool = False,
-                 base_url: str = "https://api.rocketify.rocketcop.io"
+                 base_url: str = "https://api.rocketify.app"
                  ):
         if not api_key:
             raise Exception("Please provide an api key")
@@ -39,10 +40,15 @@ class Sdk:
 
     def _update_settings(self):
         try:
-            res = requests.get("%s/monitors/sdk/settings" % self.base_url, headers={"Authorization": self.api_key})
+            res = requests.get("%s/apps/sdk/settings" % self.base_url, headers={"Authorization": self.api_key})
             res.raise_for_status()
-            self._config = res.json()
-            self.on_config_updated.fire(self._config)
+
+            prev_config = self._config
+            new_config = res.json()
+            if pickle.dumps(prev_config) != pickle.dumps(new_config):
+                self.on_config_updated.fire(new_config)
+
+            self._config = new_config
         except requests.RequestException as e:
             if e.response.status_code == 403:
                 raise e
@@ -50,22 +56,6 @@ class Sdk:
             self._debug("Error while updating settings: %s" % str(e))
         except Exception as e:
             self._debug("Error while updating settings: %s" % str(e))
-
-    def _update_actions(self):
-        try:
-            res = requests.get("%s/monitors/sdk/actions" % self.base_url, headers={"Authorization": self.api_key})
-            res.raise_for_status()
-            actions = res.json()
-            for action in actions:
-                self._debug("Action received: %s" % action)
-                self.on_action.fire(action.action, action.time)
-        except requests.RequestException as e:
-            if e.response.status_code == 403:
-                raise e
-
-            self._debug("Error while fetching actions: %s" % str(e))
-        except Exception as e:
-            self._debug("Error while fetching actions: %s" % str(e))
 
     def _log(self, message: str, log_type: str):
         try:
@@ -75,7 +65,7 @@ class Sdk:
             }
 
             res = requests.post(
-                "%s/monitors/log" % self.base_url, headers={"Authorization": self.api_key}, json=payload)
+                "%s/apps/log" % self.base_url, headers={"Authorization": self.api_key}, json=payload)
             res.raise_for_status()
         except Exception as e:
             self._debug("Error while sending log: %s" % str(e))
@@ -103,9 +93,7 @@ class Sdk:
     def init(self):
         self._raise_on_stopped()
         self._update_settings()
-        self._update_actions()
         self._interval_runners.append(IntervalRunner(self._update_settings, self.polling_interval_seconds))
-        self._interval_runners.append(IntervalRunner(self._update_actions, 2))
 
     def stop(self):
         self._debug("stopping")
